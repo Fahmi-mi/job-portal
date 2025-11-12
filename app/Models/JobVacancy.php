@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class JobVacancy extends Model
 {
@@ -18,4 +19,12 @@ class JobVacancy extends Model
         'logo',
         'salary',
     ];
+
+    /**
+     * Get the applications for the job vacancy.
+     */
+    public function applications(): HasMany
+    {
+        return $this->hasMany(Application::class, 'job_id');
+    }
 }

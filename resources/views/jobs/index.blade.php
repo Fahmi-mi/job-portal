@@ -102,6 +102,25 @@
                                                 @endif
                                             </div>
                                             
+                                            <!-- Application form for non-admin users -->
+                                            @if(Auth::user()->role !== 'admin')
+                                            <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+                                                <form action="{{ route('apply.store', $job->id) }}" method="POST" enctype="multipart/form-data" class="space-y-3">
+                                                    @csrf
+                                                    <div>
+                                                        <label for="cv_{{ $job->id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Upload CV (PDF)</label>
+                                                        <input type="file" name="cv" id="cv_{{ $job->id }}" accept=".pdf" required class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 dark:text-gray-400 focus:outline-none dark:bg-gray-700 dark:border-gray-600">
+                                                    </div>
+                                                    <button type="submit" class="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors duration-150 shadow-sm">
+                                                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                                        </svg>
+                                                        Lamar Pekerjaan
+                                                    </button>
+                                                </form>
+                                            </div>
+                                            @endif
+                                            
                                             <!-- Aksi Admin (Mobile) -->
                                             @if(Auth::user()->role === 'admin')
                                             <div class="flex sm:hidden gap-2 mt-4">
