@@ -1,0 +1,379 @@
+============================================================
+PRAKTIKUM PEMROGRAMAN WEB - PERTEMUAN 4
+Topik: Export/Import & File Upload
+============================================================
+
+[TUJUAN]
+1. Mahasiswa bisa membuat fitur user melamar pekerjaan.
+2. Mahasiswa bisa upload file (CV PDF).
+3. Admin bisa melihat daftar pelamar per lowongan.
+4. Admin bisa export daftar pelamar ke Excel.
+5. Admin bisa import data lowongan dari file Excel.
+
+============================================================
+[DASAR TEORI]
+============================================================
+
+1. Relasi One-to-Many
+   Dalam aplikasi nyata, data sering saling berhubungan. Misalnya di aplikasi Portal Lowongan Kerja,
+   satu lowongan pekerjaan bisa menerima banyak lamaran dari berbagai kandidat.
+   Hubungan ini disebut Relasi One-to-Many (satu ke banyak).
+   
+   Contoh: 1 Lowongan = Banyak Lamaran.
+   
+   Di Laravel, relasi ini dibuat dengan foreign key (misalnya kolom job_id di tabel applications
+   yang menunjuk ke tabel job_vacancies). Relasi ini penting agar kita bisa menampilkan daftar 
+   pelamar berdasarkan lowongan tertentu.
+
+2. Upload File
+   Aplikasi perlu menangani upload file, seperti CV (PDF). Di Laravel, kita membuat form khusus 
+   yang menerima file, menyimpannya di storage, lalu menyimpan path file ke database.
+   
+   PENTING: Saat membuat form upload, wajib menambahkan atribut: enctype="multipart/form-data".
+   Tanpa ini, file tidak akan terkirim ke server.
+
+   Contoh Form:
+   <form action="/apply" method="POST" enctype="multipart/form-data">
+       <input type="file" name="cv">
+       <button type="submit">Kirim</button>
+   </form>
+
+3. Laravel Excel
+   Untuk kebutuhan administrasi, admin sering butuh data dalam format Excel. Kita akan menggunakan 
+   library "Laravel Excel" untuk:
+   - Export data: Menyimpan daftar pelamar ke file Excel.
+   - Import data: Menambahkan banyak data lowongan sekaligus dari file Excel.
+
+============================================================
+[LANGKAH PRAKTIKUM]
+============================================================
+
+------------------------------------------------------------
+1. MEMBUAT MIGRATION & MODEL APPLICATION
+------------------------------------------------------------
+
+1. Jalankan perintah terminal:
+   php artisan make:model Application -m
+
+2. Edit file migration: database/migrations/xxxx_create_applications_table.php
+   
+   public function up()
+   {
+       Schema::create('applications', function (Blueprint $table) {
+           $table->id();
+           $table->foreignId('user_id')->constrained()->onDelete('cascade');
+           $table->foreignId('job_id')->constrained('job_vacancies')->onDelete('cascade');
+           $table->string('cv'); // file CV
+           $table->string('status')->default('Pending');
+           $table->timestamps();
+       });
+   }
+
+3. Edit model: app/Models/Application.php
+
+   <?php
+   namespace App\Models;
+   use Illuminate\Database\Eloquent\Model;
+   
+   class Application extends Model
+   {
+       protected $fillable = [
+           'user_id',
+           'job_id',
+           'cv',
+           'status'
+       ];
+
+       // Relationships
+       public function user()
+       {
+           return $this->belongsTo(User::class);
+       }
+
+       public function job()
+       {
+           return $this->belongsTo(JobVacancy::class, 'job_id');
+       }
+   }
+
+4. Jalankan migrasi:
+   php artisan migrate
+
+------------------------------------------------------------
+2. MEMBUAT CONTROLLER APPLICATION
+------------------------------------------------------------
+
+1. Buat controller:
+   php artisan make:controller ApplicationController -r
+
+2. Tambahkan method store (untuk melamar) di ApplicationController.php:
+
+   use App\Models\Application;
+   use Illuminate\Http\Request;
+
+   public function store(Request $request, $jobId)
+   {
+       $request->validate([
+           'cv' => 'required|mimes:pdf|max:2048',
+       ]);
+
+       $cvPath = $request->file('cv')->store('cvs', 'public');
+
+       Application::create([
+           'user_id' => auth()->id(),
+           'job_id'  => $jobId,
+           'cv'      => $cvPath,
+       ]);
+
+       return back()->with('success', 'Lamaran berhasil dikirim!');
+   }
+
+------------------------------------------------------------
+3. MEMBUAT FORM LAMARAN DI VIEW
+------------------------------------------------------------
+
+Tambahkan tombol/form "Lamar" di file resources/views/jobs/index.blade.php:
+
+<form action="{{ route('apply.store', $job->id) }}" method="POST" enctype="multipart/form-data">
+    @csrf
+    <input type="file" name="cv" required>
+    <button type="submit" class="btn btn-primary">Lamar</button>
+</form>
+
+------------------------------------------------------------
+4. MEMBUAT ROUTE LAMARAN
+------------------------------------------------------------
+
+Edit file routes/web.php:
+
+use App\Http\Controllers\ApplicationController;
+
+// Route untuk user melamar
+Route::post('/jobs/{job}/apply', [ApplicationController::class, 'store'])
+    ->name('apply.store')
+    ->middleware('auth');
+
+// Route untuk admin melihat pelamar
+Route::get('/jobs/{job}/applicants', [ApplicationController::class, 'index'])
+    ->name('applications.index')
+    ->middleware('isAdmin');
+
+// Perbaiki Route resource 'jobs' yang sudah ada sebelumnya:
+// Admin: akses penuh kecuali index dan show (bisa create/edit/delete)
+Route::resource('jobs', JobController::class)
+    ->middleware(['auth', 'isAdmin'])
+    ->except(['index', 'show']);
+
+// User biasa: hanya bisa index dan show
+Route::resource('jobs', JobController::class)
+    ->middleware(['auth'])
+    ->only(['index', 'show']);
+
+// Tambahkan Route resource 'applications'
+Route::resource('applications', ApplicationController::class)
+    ->middleware(['auth', 'isAdmin'])
+    ->except(['index', 'show']);
+
+Route::resource('applications', ApplicationController::class)
+    ->middleware(['auth'])
+    ->only(['index', 'show']);
+
+------------------------------------------------------------
+5. MENAMPILKAN DAFTAR PELAMAR (ADMIN)
+------------------------------------------------------------
+
+1. Buat file view baru: resources/views/applications/index.blade.php
+
+<x-app-layout>
+    <x-slot name="header">
+        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
+            {{ __('Daftar Pelamar') }}
+        </h2>
+    </x-slot>
+
+    <div class="py-12">
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                <div class="p-6 text-gray-900">
+                    <div class="flex items-center justify-between mb-6">
+                        <p class="text-lg font-medium text-gray-700">Kelola daftar pelamar yang tersedia.</p>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Nama Pelamar</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Lowongan</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">CV</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 bg-white">
+                                @forelse ($applications as $app)
+                                <tr>
+                                    <td class="px-4 py-3 text-sm text-gray-700">{{ $app->user->name }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-700">{{ $app->job->title }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-700">
+                                        <a href="{{ asset('storage/' . $app->cv) }}" target="_blank" 
+                                           class="inline-flex items-center rounded-md border border-transparent bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-700">
+                                            Lihat CV
+                                        </a>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm text-gray-700">
+                                        <span class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium
+                                            {{ $app->status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : 
+                                              ($app->status === 'Accepted' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700') }}">
+                                            {{ $app->status }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm text-gray-700">
+                                        <div class="flex items-center gap-2">
+                                            <form action="{{ route('applications.update', $app->id) }}" method="POST">
+                                                @method('PUT')
+                                                @csrf
+                                                <input type="hidden" name="status" value="Accepted">
+                                                <button type="submit" class="inline-flex items-center rounded-md border border-transparent bg-green-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-green-700">
+                                                    Terima
+                                                </button>
+                                            </form>
+                                            <form action="{{ route('applications.update', $app->id) }}" method="POST">
+                                                @method('PUT')
+                                                @csrf
+                                                <input type="hidden" name="status" value="Rejected">
+                                                <button type="submit" class="inline-flex items-center rounded-md border border-transparent bg-red-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-red-700">
+                                                    Tolak
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                @empty
+                                <tr>
+                                    <td colspan="5" class="px-4 py-6 text-center text-sm text-gray-500">
+                                        Belum ada pelamar yang daftar.
+                                    </td>
+                                </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</x-app-layout>
+
+2. Update ApplicationController.php method index:
+
+   public function index(Request $request, $jobId)
+   {
+       $applications = Application::with('user', 'job')->get();
+       return view('applications.index', compact('applications'));
+   }
+
+------------------------------------------------------------
+6. INSTALL LARAVEL EXCEL (EXPORT)
+------------------------------------------------------------
+
+1. Install package:
+   composer require maatwebsite/excel
+
+2. Buat export class:
+   php artisan make:export ApplicationsExport --model Application
+
+3. Isi app/Exports/ApplicationsExport.php:
+   
+   namespace App\Exports;
+   use App\Models\Application;
+   use Maatwebsite\Excel\Concerns\FromCollection;
+   
+   class ApplicationsExport implements FromCollection
+   {
+       public function collection()
+       {
+           return Application::all();
+       }
+   }
+
+4. Tambahkan route export di web.php:
+   Route::get('/applications/export', [ApplicationController::class, 'export'])
+        ->name('applications.export')
+        ->middleware('isAdmin');
+
+5. Update ApplicationController.php untuk fitur export:
+   
+   use App\Exports\ApplicationsExport;
+   use Maatwebsite\Excel\Facades\Excel;
+
+   public function export()
+   {
+       return Excel::download(new ApplicationsExport, 'applications.xlsx');
+   }
+
+------------------------------------------------------------
+7. IMPORT DATA LOWONGAN
+------------------------------------------------------------
+
+1. Buat import class:
+   php artisan make:import JobsImport --model Job
+
+2. Isi app/Imports/JobsImport.php:
+
+   namespace App\Imports;
+   use App\Models\Job; // Pastikan model Job sesuai nama model Anda (misal JobVacancy)
+   use Maatwebsite\Excel\Concerns\ToModel;
+
+   class JobsImport implements ToModel
+   {
+       public function model(array $row)
+       {
+           return new Job([
+               'title'       => $row[0],
+               'description' => $row[1],
+               'location'    => $row[2],
+               'company'     => $row[3],
+               'salary'      => $row[4],
+           ]);
+       }
+   }
+
+3. Tambahkan route import di web.php:
+   Route::post('/jobs/import', [JobController::class, 'import'])
+        ->name('jobs.import')
+        ->middleware('isAdmin');
+
+4. Tambahkan form import di halaman view (misal di dashboard admin):
+   <form action="/jobs/import" method="POST" enctype="multipart/form-data">
+       @csrf
+       <input type="file" name="file" required>
+       <button type="submit" class="btn btn-info">Import Lowongan</button>
+   </form>
+
+5. Update JobController.php untuk fitur import:
+
+   use App\Imports\JobsImport;
+   use Maatwebsite\Excel\Facades\Excel;
+
+   public function import(Request $request)
+   {
+       $request->validate(['file' => 'required|mimes:xlsx,csv']);
+       
+       Excel::import(new JobsImport, $request->file('file'));
+       
+       return back()->with('success', 'Data lowongan berhasil diimport');
+   }
+
+============================================================
+[LATIHAN]
+============================================================
+
+1. Tambahkan kolom status lamaran (Pending, Accepted, Rejected) agar admin bisa memperbarui status pelamar.
+2. Bagaimana agar Admin bisa mengubah postingan Jobs?
+3. Bagaimana agar User bisa melihat detail lowongan sebelum dia upload CV?
+4. Bagaimana agar tombol "Tambah Lowongan" hanya bisa diakses oleh Admin?
+5. Apakah Admin sudah bisa menerima atau menolak pelamar? Jika belum, tambahkan aksi agar Admin bisa menerima dan menolak pelamar.
+6. Tambahkan tombol "Download CV" di tabel daftar pelamar.
+7. Buat filter export agar hanya menampilkan pelamar untuk satu lowongan tertentu.
+8. Buatkan template import Excel yang bisa didownload oleh admin.
